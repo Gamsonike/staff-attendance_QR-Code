@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Staff Attendance</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--mu:#64707f;--bd:#e2e6ec;--ac:#0f6b5c;--act:#fff;--ok:#15803d;--er:#b42318;--wa:#b45309;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1318;--card:#181e26;--tx:#eef1f5;--mu:#97a3b3;--bd:#2a3340;--ac:#3fb8a3;--act:#06231e;--ok:#4ade80;--er:#f87171;--wa:#fbbf24}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:980px;margin:0 auto;padding:16px}.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:18px;margin-bottom:14px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:0 0 10px}.mu{color:var(--mu);font-size:14px}
+input,button,a.b{font:inherit;border-radius:10px;border:1px solid var(--bd);padding:11px 12px;background:var(--card);color:var(--tx)}input{width:100%;margin:5px 0 10px}
+button,a.b{cursor:pointer;background:var(--ac);color:var(--act);border:0;font-weight:600;text-decoration:none;display:inline-block}button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}.row>*{flex:1}.tabs button{flex:none}.big{width:100%;padding:16px;font-size:18px}
+.msg{padding:12px;border-radius:10px;margin:10px 0;background:var(--bg);border:1px solid var(--bd)}.msg.ok{color:var(--ok)}.msg.err{color:var(--er)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}.stats .card{margin:0;text-align:center}.stats b{font-size:28px;display:block}
+.sc{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:15px}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--bd);white-space:nowrap}th{color:var(--mu);font-size:13px}
+.pill{padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;border:1px solid currentColor;margin-right:4px}.in{color:var(--ok)}.out{color:var(--mu)}.ab{color:var(--wa)}
+#qr{text-align:center}#qr svg{width:min(320px,80vw);height:auto;background:#fff;padding:12px;border-radius:12px}.code{font-size:34px;letter-spacing:6px;font-weight:700}
+</style></head><body><main id="app"></main>
+<script>
+const $=s=>document.querySelector(s),app=$('#app');let me,tab='me',timer,dd='',mon='';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const hm=h=>{if(h==null)return '—';const t=Math.round(h*60);return Math.floor(t/60)+'h '+String(t%60).padStart(2,'0')+'m'};
+const api=async(p,m='GET',b)=>{const r=await fetch('/api/'+p,{method:m,headers:b?{'Content-Type':'application/json'}:{},body:b?JSON.stringify(b):undefined}),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Request failed');return j};
+const say=(t,c,id='m')=>{const e=$('#'+id);e.hidden=false;e.className='msg '+(c||'');e.textContent=t};
+const getPos=()=>new Promise((y,n)=>navigator.geolocation?navigator.geolocation.getCurrentPosition(y,n,{enableHighAccuracy:true,timeout:15000}):n());
+const flags=r=>(r.late?'<span class="pill ab">Late</span>':'')+(r.missing?'<span class="pill ab">No sign-out</span>':'')+(r.ot>0.01?`<span class="pill in">OT ${hm(r.ot)}</span>`:'');
+const form=(t,sub,btn,extra)=>app.innerHTML=`<div class="card"><h1>${t}</h1><p class="mu">${sub}</p>${extra}<button class="big" id="go">${btn}</button><div id="m" class="msg" hidden></div></div>`;
+async function boot(){try{if((await api('status')).setup)return setup();me=await api('me');home()}catch(e){login()}}
+function setup(){form('First-time setup','Create the admin account.','Create system','<input id="n" placeholder="Your name"><input id="p" inputmode="tel" placeholder="Phone number"><input id="pin" type="password" inputmode="numeric" placeholder="PIN (4–6 digits)">');
+ $('#go').onclick=async()=>{try{me=await api('setup','POST',{name:$('#n').value,phone:$('#p').value,pin:$('#pin').value});tab='dash';home()}catch(e){say(e.message,'err')}}}
+function login(){form('Staff Attendance','Sign in with your phone number and PIN.','Sign in','<input id="p" inputmode="tel" placeholder="Phone number"><input id="pin" type="password" inputmode="numeric" placeholder="PIN">');
+ $('#go').onclick=async()=>{try{me=await api('login','POST',{phone:$('#p').value,pin:$('#pin').value});tab='me';home()}catch(e){say(e.message,'err')}}}
+function home(){clearInterval(timer);const adm=me.role==='admin';if(!adm)tab='me';
+ app.innerHTML=`<div class="row"><div><h1>Hi, ${esc(me.name.split(' ')[0])}</h1><div class="mu">${new Date().toDateString()}</div></div><button class="g" style="flex:none" id="lo">Log out</button></div>`+
+ (adm?`<div class="row tabs">${[['me','Scan'],['dash','Dashboard'],['mon','Monthly'],['staff','Staff'],['qr','Entrance QR'],['set','Settings']].map(([k,l])=>`<button class="${tab==k?'':'g'}" data-t="${k}">${l}</button>`).join('')}</div>`:'')+'<div id="v"></div>';
+ $('#lo').onclick=async()=>{await api('logout','POST');login()};app.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{tab=b.dataset.t;home()});
+ ({me:vMe,dash:vDash,mon:vMon,staff:vStaff,qr:vQr,set:vSet})[tab]()}
+async function vMe(){
+ $('#v').innerHTML=`<div class="card"><h2>Today</h2><div id="st" class="mu"></div></div><div class="card"><h2>Sign in / out</h2><p class="mu">Scan the entrance QR with your phone camera, or type the 6-digit code shown under it.</p><input id="c" inputmode="numeric" maxlength="6" placeholder="6-digit code"><button class="big" id="go">Submit</button><div id="m" class="msg" hidden></div></div>
+ <div class="card sc"><h2>My recent days</h2><div id="h"></div></div><div class="card"><h2>Change my PIN</h2><div class="row"><input id="op" type="password" inputmode="numeric" placeholder="Current PIN"><input id="np" type="password" inputmode="numeric" placeholder="New PIN"></div><button id="pp">Change PIN</button> <span id="pm" class="mu"></span></div>`;
+ const h=(location.hash.match(/scan=(\d{6})/)||[])[1];if(h)$('#c').value=h;
+ const load=async()=>{const r=await api('my'),t=r.find(x=>x.date===me.today);
+  $('#st').innerHTML=!t?'Not signed in yet.':`<b style="color:var(--tx)">Signed in ${t.in_local}</b>`+(t.out_local?` · Signed out ${t.out_local} · <b style="color:var(--tx)">${hm(t.hours)}</b> worked`:' · working…');
+  $('#h').innerHTML='<table><tr><th>Date</th><th>In</th><th>Out</th><th>Hours</th><th></th></tr>'+r.map(x=>`<tr><td>${x.date}</td><td>${x.in_local}</td><td>${x.out_local||'—'}</td><td>${hm(x.hours)}</td><td>${flags(x)}</td></tr>`).join('')+'</table>'};
+ load();
+ $('#go').onclick=async()=>{say('Checking…');let lat=null,lng=null;try{const p=await getPos();lat=p.coords.latitude;lng=p.coords.longitude}catch(e){}
+  try{const r=await api('scan','POST',{code:$('#c').value.trim(),lat,lng});
+   if(r.action==='in')say('Signed in at '+r.at+'. Have a great day!','ok');else if(r.action==='out')say(`Signed out at ${r.at}. ${hm(r.hours)} worked today.`,'ok');
+   else if(r.action==='wait')say('You just signed in. Please wait a minute before signing out.','err');else say('You have already signed in and out today.','err');load()}catch(e){say(e.message,'err')}};
+ $('#pp').onclick=async()=>{try{await api('pin','POST',{old:$('#op').value,new:$('#np').value});$('#pm').textContent='PIN changed.';$('#op').value=$('#np').value=''}catch(e){$('#pm').textContent=e.message}}}
+async function vDash(){
+ $('#v').innerHTML=`<div class="stats" id="sts"></div><div class="card"><label>Date<input type="date" id="d"></label><div class="sc" id="tb"></div></div><div id="edp"></div>`;
+ $('#d').value=dd||(dd=me.today);$('#d').onchange=e=>{dd=e.target.value||me.today;draw()};
+ let rows=[];const draw=async()=>{try{rows=(await api('attendance?date='+dd)).rows}catch(e){return}
+  const inn=rows.filter(r=>r.time_in&&!r.time_out).length,done=rows.filter(r=>r.time_out).length,tot=rows.reduce((a,r)=>a+(r.hours||0),0);
+  $('#sts').innerHTML=[['Staff',rows.length],['Working now',inn],['Signed out',done],['Absent',rows.length-inn-done],['Total hours',tot.toFixed(1)]].map(([l,v])=>`<div class="card"><b>${v}</b><span class="mu">${l}</span></div>`).join('');
+  $('#tb').innerHTML='<table><tr><th>Name</th><th>Phone</th><th>Status</th><th>In</th><th>Out</th><th>Hours</th><th>Flags</th><th></th></tr>'+rows.map((r,i)=>`<tr><td>${esc(r.name)}</td><td>${esc(r.phone)}</td><td>${r.time_in?(r.time_out?'<span class="pill out">Done</span>':'<span class="pill in">In</span>'):'<span class="pill ab">Absent</span>'}</td><td>${r.in_local||'—'}</td><td>${r.out_local||'—'}</td><td>${hm(r.hours)}</td><td>${flags(r)}</td><td><button class="g" data-e="${i}">Edit</button></td></tr>`).join('')+'</table>';
+  $('#tb').querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>edit(rows[b.dataset.e]))};
+ const edit=r=>{$('#edp').innerHTML=`<div class="card"><h2>Edit ${esc(r.name)} · ${dd}</h2><div class="row"><label>Sign in<input type="time" id="ei" value="${r.in_local||''}"></label><label>Sign out<input type="time" id="eo" value="${r.out_local||''}"></label></div><div class="row"><button id="es">Save</button><button class="g" id="ec">Cancel</button><button class="g" id="ed">Delete record</button></div><div id="m" class="msg" hidden></div></div>`;
+  $('#edp').scrollIntoView({behavior:'smooth'});$('#ec').onclick=()=>$('#edp').innerHTML='';
+  $('#ed').onclick=async()=>{await api(`attendance?staff_id=${r.staff_id}&date=${dd}`,'DELETE');$('#edp').innerHTML='';draw()};
+  $('#es').onclick=async()=>{try{await api('attendance','PUT',{staff_id:r.staff_id,date:dd,time_in:$('#ei').value,time_out:$('#eo').value||null});$('#edp').innerHTML='';draw()}catch(e){say(e.message,'err')}}};
+ draw();timer=setInterval(()=>{if(!$('#edp').innerHTML)draw()},15000)}
+async function vMon(){
+ $('#v').innerHTML=`<div class="card"><div class="row"><label>Month<input type="month" id="m"></label><a class="b" id="ex" style="flex:none">Export CSV</a></div><div class="sc" id="tb"></div></div>`;
+ $('#m').value=mon||(mon=me.today.slice(0,7));
+ const draw=async()=>{$('#ex').href='/api/report?csv=1&month='+mon;const r=await api('report?month='+mon);
+  $('#tb').innerHTML='<table><tr><th>Name</th><th>Days</th><th>Total hours</th><th>Avg/day</th><th>Late days</th><th>Overtime</th><th>No sign-out</th></tr>'+r.rows.map(x=>`<tr><td>${esc(x.name)}</td><td>${x.days}</td><td>${hm(x.hours)}</td><td>${hm(x.avg)}</td><td>${x.late}</td><td>${hm(x.ot)}</td><td>${x.missing}</td></tr>`).join('')+'</table>'};
+ $('#m').onchange=e=>{mon=e.target.value||me.today.slice(0,7);draw()};draw()}
+async function vStaff(){
+ $('#v').innerHTML=`<div class="card"><h2>Add staff or reset a PIN</h2><p class="mu">Adding an existing phone number sets a new PIN for that person.</p><div class="row"><input id="n" placeholder="Full name"><input id="p" inputmode="tel" placeholder="Phone number"><input id="pin" inputmode="numeric" placeholder="PIN (4–6 digits)"></div><button id="add">Save</button><div id="m" class="msg" hidden></div></div><div class="card sc" id="ls"></div>`;
+ const draw=async()=>{const r=await api('staff');$('#ls').innerHTML='<table><tr><th>Name</th><th>Phone</th><th>Role</th><th></th></tr>'+r.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.phone)}</td><td>${x.role}</td><td>${x.id===me.id?'':`<button class="g" data-r="${x.id}">Remove</button>`}</td></tr>`).join('')+'</table>';
+  $('#ls').querySelectorAll('[data-r]').forEach(b=>b.onclick=async()=>{if(confirm('Remove this staff member? Their history is kept.')){await api('staff/'+b.dataset.r,'DELETE');draw()}})};
+ $('#add').onclick=async()=>{try{await api('staff','POST',{name:$('#n').value,phone:$('#p').value,pin:$('#pin').value});say('Saved.','ok');['n','p','pin'].forEach(i=>$('#'+i).value='');draw()}catch(e){say(e.message,'err')}};draw()}
+async function vQr(){
+ $('#v').innerHTML=`<div class="card" id="qr"><h2>Scan to sign in / out</h2><div id="img"></div><div class="code" id="cd">······</div><div class="mu" id="ct"></div></div>`;let last='',left=0;
+ const tick=async()=>{if(left<=0){try{const r=await api('qr');left=r.seconds;if(r.code!==last){last=r.code;$('#cd').textContent=r.code;const q=qrcode(0,'M');q.addData(r.url);q.make();$('#img').innerHTML=q.createSvgTag(6,0)}}catch(e){}}left--;$('#ct').textContent='Refreshes in '+Math.max(0,left+1)+'s'};
+ tick();timer=setInterval(tick,1000)}
+async function vSet(){
+ const S=await api('settings');
+ $('#v').innerHTML=`<div class="card"><h2>Location check</h2><p class="mu">Stand at the office and tap the button to capture its location. Leave unset to switch the check off.</p><p id="loc"></p><button id="gps">Use my current location</button> <button class="g" id="clr">Clear</button><label style="display:block;margin-top:12px">Allowed radius (metres)<input id="rad" type="number" min="20" value="${S.radius}"></label></div>
+ <div class="card"><h2>Working hours</h2><p class="mu">Used to flag late arrivals and overtime.</p><div class="row"><label>Start<input type="time" id="ws" value="${S.start}"></label><label>End<input type="time" id="we" value="${S.end}"></label><label>Grace (min)<input type="number" id="wg" min="0" value="${S.grace}"></label></div></div>
+ <div class="card"><h2>Entrance display</h2><p class="mu">Open this link on the entrance tablet or screen. It shows only the QR code and needs no login. Keep the link private: anyone who has it can see the current code.</p><input id="kl" readonly value="${esc((S.app_url||location.origin)+'/kiosk.html?key='+S.kiosk_key)}"><div class="row"><a class="b" target="_blank" href="${esc((S.app_url||location.origin)+'/kiosk.html?key='+S.kiosk_key)}">Open display</a><button class="g" id="kr">Generate new link</button></div></div>
+ <div class="card"><h2>Public address</h2><p class="mu">Optional. Used in the QR code, e.g. https://attendance.yourcompany.com</p><input id="url" value="${esc(S.app_url)}"></div><button class="big" id="sv">Save settings</button><div id="m" class="msg" hidden></div>`;
+ let lat=S.lat,lng=S.lng;const sh=()=>$('#loc').textContent=lat!=null?`Saved: ${(+lat).toFixed(5)}, ${(+lng).toFixed(5)}`:'Not set (location check is off)';sh();
+ $('#gps').onclick=async()=>{try{const p=await getPos();lat=p.coords.latitude;lng=p.coords.longitude;sh();say('Captured. Tap Save settings to keep it.','ok')}catch(e){say('Could not get location. Allow access (HTTPS is required).','err')}};
+ $('#clr').onclick=()=>{lat=lng=null;sh()};
+ $('#kr').onclick=async()=>{if(confirm('The old display link will stop working. Continue?')){await api('kiosk/reset','POST',{});vSet()}};
+ $('#sv').onclick=async()=>{try{await api('settings','PUT',{radius:$('#rad').value,start:$('#ws').value,end:$('#we').value,grace:$('#wg').value,lat,lng,app_url:$('#url').value});say('Settings saved.','ok')}catch(e){say(e.message,'err')}}}
+boot();
+</script></body></html>

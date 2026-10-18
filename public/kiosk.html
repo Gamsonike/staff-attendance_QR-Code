@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan to sign in / out</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--tx:#14181f;--mu:#64707f;--er:#b42318;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1318;--tx:#eef1f5;--mu:#97a3b3;--er:#f87171}}
+html,body{height:100%;margin:0}body{background:var(--bg);color:var(--tx);font:20px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:14px;cursor:none}
+h1{margin:0;font-size:clamp(24px,4vw,40px)}#img svg{width:min(70vh,80vw);height:auto;background:#fff;padding:16px;border-radius:16px}
+#cd{font-size:clamp(36px,7vw,72px);font-weight:700;letter-spacing:.15em}#ct{color:var(--mu);font-size:18px}#er{color:var(--er)}
+</style></head><body>
+<h1>Scan to sign in / out</h1><div id="img"></div><div id="cd">······</div><div id="ct"></div><div id="er"></div>
+<script>
+const key=new URLSearchParams(location.search).get('key')||'';let last='',left=0;
+async function tick(){
+  if(left<=0){try{const r=await fetch('/api/kiosk?key='+encodeURIComponent(key)),j=await r.json();
+    if(!r.ok)throw new Error(j.error);left=j.seconds;document.getElementById('er').textContent='';
+    if(j.code!==last){last=j.code;document.getElementById('cd').textContent=j.code;const q=qrcode(0,'M');q.addData(j.url);q.make();document.getElementById('img').innerHTML=q.createSvgTag(6,0)}
+  }catch(e){left=5;document.getElementById('er').textContent=e.message||'Cannot reach the server.'}}
+  left--;document.getElementById('ct').textContent='Code refreshes every 45 seconds';
+}
+tick();setInterval(tick,1000);
+</script></body></html>
